@@ -1318,7 +1318,8 @@ ngx_rtmp_hls_ensure_directory(ngx_rtmp_session_t *s, ngx_str_t *path)
     ngx_file_info_t           fi;
     ngx_rtmp_hls_ctx_t       *ctx;
     ngx_rtmp_hls_app_conf_t  *hacf;
-
+    u_char *p = NULL;
+	
     static u_char  zpath[NGX_MAX_PATH + 1];
 
     hacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_hls_module);
@@ -1401,11 +1402,31 @@ ngx_rtmp_hls_ensure_directory(ngx_rtmp_session_t *s, ngx_str_t *path)
     }
 
     /* NGX_ENOENT */
-
-    if (ngx_create_dir(zpath, NGX_RTMP_HLS_DIR_ACCESS) == NGX_FILE_ERROR) {
+    /*add multi dirs */
+    p = ngx_strstrn(zpath,path->data,path->len-1);
+    for (;p < &zpath[0]+strlen(zpath);)
+    {
+      if ( p == &zpath[0]) p = (u_char *)ngx_strstrn(p+path->len+1,"/",strlen("/")-1);
+      if (NULL == p|| "\0" == *p)
+      {
+        if (ngx_create_dir(zpath, NGX_RTMP_HLS_DIR_ACCESS) == NGX_FILE_ERROR) {
+          ngx_log_error(NGX_LOG_ERR, s->log, ngx_errno,
+                  "hls: " ngx_create_dir_n " failed on '%s'", zpath);
+          return NGX_ERROR;
+        }
+        break;
+      }
+      
+      p += 1;
+      static u_char  tmp_zpath[NGX_MAX_PATH + 1]={0};
+      ngx_memcpy(tmp_zpath,zpath,p-zpath >strlen(zpath) ? strlen(zpath): p-zpath);
+      int res = ngx_create_dir(tmp_zpath, NGX_RTMP_HLS_DIR_ACCESS);
+      if ( res == NGX_FILE_ERROR && ngx_errno != NGX_EEXIST ) {
         ngx_log_error(NGX_LOG_ERR, s->log, ngx_errno,
-                      "hls: " ngx_create_dir_n " failed on '%s'", zpath);
+                "hls: " ngx_create_dir_n " failed on '%s'", tmp_zpath);
         return NGX_ERROR;
+      }
+      p = (u_char *)ngx_strstrn(p,"/",strlen("/")-1);
     }
 
     ngx_log_debug1(NGX_LOG_DEBUG_RTMP, s->log, 0,
